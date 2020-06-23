@@ -37,6 +37,19 @@ def detect(model, recorder):
     plt.show()
     recorder.wakeup()
 
+def detect_from_wavfile(wavfile):
+    gpu_setting()
+    model = load_model('md-normal-lr2.h5')
+    plt.subplot(2, 1, 1)
+    x = DataLoader.specgram(wavfile, True)
+    x = x.swapaxes(0,1)
+    x = np.expand_dims(x, axis=0)
+
+    predictions = model.predict(x)
+    plt.plot(predictions[0,:,0])
+    plt.ylabel('probability')
+    plt.show()
+
 def test():
     gpu_setting()
     model = load_model('md-normal-lr2.h5')
