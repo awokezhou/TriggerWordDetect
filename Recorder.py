@@ -1,5 +1,6 @@
 
 import copy
+import time
 import wave
 import pyaudio
 import threading
@@ -11,16 +12,16 @@ class RecorderAgent(threading.Thread):
 
     DEFAULT_CONFIG = {
         'rate':44100,
-        'chunk':44100,
+        'chunk':441,
         'channels':1,
         'format':pyaudio.paInt16,
-        'window':10,
+        'window':1000,
         'tepwav_file':'Recorder-tmpwav.wav',
     }
 
     def __init__(self, **configs):
         
-        threading.Thread = __init__(self)
+        threading.Thread.__init__(self)
 
         self.config = copy.copy(self.DEFAULT_CONFIG)
         for key in self.config:
@@ -28,24 +29,25 @@ class RecorderAgent(threading.Thread):
                 self.config[key] = configs.pop(key)
 
         self.stop_event = threading.Event()
+        self.lock = threading.Lock()
         self.audio = pyaudio.PyAudio()
         self.frames = []
 
     def stop(self):
-        
         self.stop_event.set()
         print('Recorder Agent stop')
         
     def run(self):
         
         print('Recorder Agent start')
+        start = time.time()
 
         try:
             stream = self.audio.open(format=self.config['format'],
-                                    channels=self.config['channels'],
-                                    rate=self.config['rate'],
-                                    frames_per_buffer=self.config['chunk'],
-                                    input=True)
+                                     channels=self.config['channels'],
+                                     rate=self.config['rate'],
+                                     frames_per_buffer=self.config['chunk'],
+                                     input=True)
         except Exception as e:
             print('Record Agent Exception: {}'.format(e))
             return
@@ -63,26 +65,26 @@ class RecorderAgent(threading.Thread):
         self.audio.terminate()
 
         print('stream close')
+        print('time:{}'.format(int(time.time()-start)))
 
     def run_once(self, stream, chunk):
-        
-        data = stream.read(stream, chunk)
-        
+        self.lock.acquire()
+        data = stream.read(chunk)
+        self.lock.release()
         if len(self.frames) == self.config['window']:
             self.frames.pop(0)
-        
         self.frames.append(data)
 
     def wav_extract(self):
         frames = copy.deepcopy(self.frames)
         wf = wave.open(self.config['tepwav_file'], 'wb')
         wf.setnchannels(self.config['channels'])
-        wf.setsampwidth(self.audio.get_sample_size(self.agent.config['format']))
+        wf.setsampwidth(self.audio.get_sample_size(self.config['format']))
         wf.setframerate(self.config['rate'])
         wf.writeframes(b''.join(frames))
         wf.close()
-        rate, data = wavfile.read(self.config['tepwav_file'])
-        return data
+        #rate, data = wavfile.read(self.config['tepwav_file'])
+        return (self.config['tepwav_file'])
 
 
 
@@ -90,7 +92,7 @@ class Recorder(object):
 
     DEFAULT_CONFIG = {
         'record_rate':44100,
-        'record_chunk':44100,
+        'record_chunk':441,
         'record_channels':1,
         'record_format':pyaudio.paInt16,
     }
@@ -102,13 +104,9 @@ class Recorder(object):
             if key in configs:
                 self.config[key] = configs.pop(key)
 
-        self.agent = RecorderAgent(rate=self.config['record_rate'],
-                                   chunk=self.config['record_chunk'],
-                                   format=self.config['record_format'],
-                                   channels=self.config['record_channels'],
-                                   window=10)
+        self.agent = RecorderAgent()
 
-    def record_seconds(self, sec, save=False, savefile='Recorder-test.wav'):
+    def record_seconds(self, sec, save=True, savefile='Recorder-test.wav'):
         
         frames = []
         p = pyaudio.PyAudio()
@@ -136,14 +134,16 @@ class Recorder(object):
             wf.close()
 
         p.terminate()
+        return frames
 
     def start(self):
+        self.agent.setDaemon(True)
         self.agent.start()
 
     def stop(self):
         self.agent.stop()
         self.agent.join()
 
-    def window_extract(self):
+    def window_export(self):
         return self.agent.wav_extract()
 
