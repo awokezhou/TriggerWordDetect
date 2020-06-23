@@ -29,9 +29,19 @@ class RecorderAgent(threading.Thread):
                 self.config[key] = configs.pop(key)
 
         self.stop_event = threading.Event()
+        self.wait_event = threading.Event()
+        self.wait_event.set()
         self.lock = threading.Lock()
         self.audio = pyaudio.PyAudio()
         self.frames = []
+
+    def sleep(self):
+        self.wait_event.clear()
+        print('Recorder Agent sleep')
+
+    def wakeup(self):
+        self.wait_event.set()
+        print('Recorder Agent wakeup')
 
     def stop(self):
         self.stop_event.set()
@@ -56,6 +66,7 @@ class RecorderAgent(threading.Thread):
 
         try:
             while not self.stop_event.is_set():
+                self.wait_event.wait()
                 self.run_once(stream, self.config['chunk'])
         except Exception as e:
             print('Record Agent Exception: {}'.format(e))
@@ -143,6 +154,12 @@ class Recorder(object):
     def stop(self):
         self.agent.stop()
         self.agent.join()
+
+    def sleep(self):
+        self.agent.sleep()
+    
+    def wakeup(self):
+        self.agent.wakeup()
 
     def window_export(self):
         return self.agent.wav_extract()

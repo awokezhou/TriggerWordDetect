@@ -24,6 +24,7 @@ def gpu_setting(limit=2048):
         tf.config.experimental.set_memory_growth(_g, True)
 
 def detect(model, recorder):
+    recorder.sleep()
     file= recorder.window_export()
     plt.subplot(2, 1, 1)
     x = DataLoader.specgram(file, True)
@@ -34,6 +35,7 @@ def detect(model, recorder):
     plt.plot(predictions[0,:,0])
     plt.ylabel('probability')
     plt.show()
+    recorder.wakeup()
 
 def test():
     gpu_setting()
