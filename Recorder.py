@@ -1,9 +1,11 @@
 
+import sys
 import copy
 import time
 import wave
 import pyaudio
 import threading
+import alsaaudio as aio
 from scipy.io import wavfile
 
 
@@ -13,10 +15,10 @@ class RecorderAgent(threading.Thread):
     DEFAULT_CONFIG = {
         'rate':44100,
         'chunk':441,
-        'channels':1,
-        'format':pyaudio.paInt16,
-        'window':1000,
-        'tepwav_file':'Recorder-tmpwav.wav',
+        'channels':2,
+        'format':aio.PCM_FORMAT_S16_LE,
+        'window':10,
+        'device':'hw:0,0',
     }
 
     def __init__(self, **configs):
@@ -32,8 +34,8 @@ class RecorderAgent(threading.Thread):
         self.wait_event = threading.Event()
         self.wait_event.set()
         self.lock = threading.Lock()
-        self.audio = pyaudio.PyAudio()
         self.frames = []
+        self.frames_length = int(self.config['rate']/self.config['chunk']*self.config['window'])
 
     def sleep(self):
         self.wait_event.clear()
@@ -50,62 +52,49 @@ class RecorderAgent(threading.Thread):
     def run(self):
         
         print('Recorder Agent start')
+
+        self.pcmobj = aio.PCM(type=aio.PCM_CAPTURE, 
+                              device=self.config['device'],
+                              mode=aio.PCM_NORMAL)
+        self.pcmobj.setchannels(self.config['channels'])
+        self.pcmobj.setrate(self.config['rate'])
+        self.pcmobj.setformat(self.config['format'])
+        self.pcmobj.setperiodsize(self.config['chunk'])
+
         start = time.time()
-
-        try:
-            stream = self.audio.open(format=self.config['format'],
-                                     channels=self.config['channels'],
-                                     rate=self.config['rate'],
-                                     frames_per_buffer=self.config['chunk'],
-                                     input=True)
-        except Exception as e:
-            print('Record Agent Exception: {}'.format(e))
-            return
         
-        print('stream open')
-
         try:
             while not self.stop_event.is_set():
                 self.wait_event.wait()
-                self.run_once(stream, self.config['chunk'])
+                self.run_once()
         except Exception as e:
             print('Record Agent Exception: {}'.format(e))
 
-        stream.stop_stream()
-        stream.close()
-        self.audio.terminate()
-
-        print('stream close')
+        self.pcmobj.close()
         print('time:{}'.format(int(time.time()-start)))
 
-    def run_once(self, stream, chunk):
-        self.lock.acquire()
-        data = stream.read(chunk)
-        self.lock.release()
-        if len(self.frames) == self.config['window']:
+    def run_once(self):
+        length, data = self.pcmobj.read()
+        if len(self.frames) == self.frames_length:
             self.frames.pop(0)
         self.frames.append(data)
 
-    def wav_extract(self):
-        frames = copy.deepcopy(self.frames)
-        wf = wave.open(self.config['tepwav_file'], 'wb')
-        wf.setnchannels(self.config['channels'])
-        wf.setsampwidth(self.audio.get_sample_size(self.config['format']))
-        wf.setframerate(self.config['rate'])
-        wf.writeframes(b''.join(frames))
-        wf.close()
-        #rate, data = wavfile.read(self.config['tepwav_file'])
-        return (self.config['tepwav_file'])
+    def frames_export(self):
+        self.sleep()
+        if len(self.frames) == self.frames_length:
+            frames = copy.deepcopy(self.frames)
+        else:
+            #print('data not ready')
+            frames = None
+        self.wakeup()
+        return frames
 
 
 
 class Recorder(object):
 
     DEFAULT_CONFIG = {
-        'record_rate':44100,
-        'record_chunk':441,
-        'record_channels':1,
-        'record_format':pyaudio.paInt16,
+        'tepwav_file':'Recorder-tmpwav.wav',
     }
 
     def __init__(self, **configs):
@@ -117,35 +106,43 @@ class Recorder(object):
 
         self.agent = RecorderAgent()
 
-    def record_seconds(self, sec, save=True, savefile='Recorder-test.wav'):
-        
+    @classmethod
+    def record(cls, channels=2, fmt=aio.PCM_FORMAT_S16_LE, 
+               rate=44100, periodsize=441, device='hw:0,0',
+               seconds=10):
+
         frames = []
-        p = pyaudio.PyAudio()
-        
-        stream = p.open(format=self.config['record_format'],
-                        channels=self.config['record_channels'],
-                        rate=self.config['record_rate'],
-                        frames_per_buffer=self.config['record_chunk'],
-                        input=True)
-        
-        max = int(self.config['record_rate']/self.config['record_chunk']*sec)
-        for i in range(0, max):
-            data = stream.read(self.config['record_chunk'])
+
+        pobj = aio.PCM(type=aio.PCM_CAPTURE, 
+                       device='device', 
+                       mode=aio.PCM_NORMAL)
+        pobj.setchannels(channels)
+        pobj.setrate(rate)
+        pobj.setformat(fmt)
+        pobj.setperiodsize(periodsize)
+
+        pobj.dumpinfo()
+
+        for i in range(0, int(rate/periodsize*seconds)):
+            length, data = pobj.read()
             frames.append(data)
-        
-        stream.stop_stream()
-        stream.close()
 
-        if save:
-            wf = wave.open(savefile, 'wb')
-            wf.setnchannels(self.config['record_channels'])
-            wf.setsampwidth(p.get_sample_size(self.config['record_format']))
-            wf.setframerate(self.config['record_rate'])
-            wf.writeframes(b''.join(frames))
-            wf.close()
+        pobj.close()
 
-        p.terminate()
         return frames
+
+    @classmethod
+    def wavsave(cls, frames, channels=2, fmt=aio.PCM_FORMAT_S16_LE,
+                rate=44100, filename='tmp.wav'):
+        #print('frames length:{} framesize:{}'.format(
+            #len(frames), len(frames[0])))
+        wf = wave.open(filename, 'wb')
+        wf.setnchannels(channels)
+        wf.setsampwidth(fmt)
+        wf.setframerate(rate)
+        wf.writeframes(b''.join(frames))
+        wf.close()
+        sys.stdout.flush()
 
     def start(self):
         self.agent.setDaemon(True)
@@ -162,5 +159,7 @@ class Recorder(object):
         self.agent.wakeup()
 
     def window_export(self):
-        return self.agent.wav_extract()
-
+        frames = self.agent.frames_export()
+        if not frames:
+            return
+        Recorder.wavsave(frames, filename=self.config['tepwav_file'])

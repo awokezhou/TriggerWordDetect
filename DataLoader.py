@@ -113,6 +113,7 @@ class DataLoader(object):
     @classmethod
     def specgram(self, file, show=False):
         rate, data = wavfile.read(file)
+        print(data.shape)
         nfft = 200
         fs = 8000
         noverlap = 120
